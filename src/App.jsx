@@ -19,78 +19,8 @@ import {
   MessageCircleHeart,
   Award,
   Trophy,
-  Clock,
-  Hourglass,
   ShieldCheck
 } from 'lucide-react';
-
-function extractTimePatterns(rawText) {
-  if (!rawText) return null;
-  const text = rawText.toString();
-
-  const kifTimeMatches = [...text.matchAll(/\(\s*([0-9]+):([0-9]{2})(?:\/[^)]*)?\)/g)];
-  const pgnClkMatches = [...text.matchAll(/\[%(?:clk|emt)\s+([0-9]+):([0-9]{2})(?::([0-9]{2}))?\]/gi)];
-  const secondMatches = [...text.matchAll(/([0-9]+)\s*(?:秒|sec)/gi)];
-
-  let totalMovesWithTime = 0;
-  let maxSeconds = 0;
-  let longThinkCount = 0;
-  let quickMoveCount = 0;
-
-  if (kifTimeMatches.length > 0) {
-    totalMovesWithTime = kifTimeMatches.length;
-    kifTimeMatches.forEach(m => {
-      const sec = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
-      if (sec > maxSeconds) maxSeconds = sec;
-      if (sec >= 45) longThinkCount++;
-      if (sec <= 5) quickMoveCount++;
-    });
-  } else if (pgnClkMatches.length > 1) {
-    totalMovesWithTime = pgnClkMatches.length;
-    for (let i = 0; i < pgnClkMatches.length - 1; i++) {
-      const s1 = parseInt(pgnClkMatches[i][1], 10) * 60 + parseInt(pgnClkMatches[i][2], 10);
-      const s2 = parseInt(pgnClkMatches[i+1][1], 10) * 60 + parseInt(pgnClkMatches[i+1][2], 10);
-      const diff = Math.max(0, s1 - s2);
-      if (diff > maxSeconds) maxSeconds = diff;
-      if (diff >= 45) longThinkCount++;
-      if (diff <= 3) quickMoveCount++;
-    }
-  } else if (secondMatches.length > 0) {
-    totalMovesWithTime = secondMatches.length;
-    secondMatches.forEach(m => {
-      const sec = parseInt(m[1], 10);
-      if (sec > maxSeconds) maxSeconds = sec;
-      if (sec >= 30) longThinkCount++;
-      if (sec <= 4) quickMoveCount++;
-    });
-  }
-
-  if (totalMovesWithTime < 3) return null;
-
-  let trait = '';
-  let advice = '';
-
-  if (longThinkCount >= 3 || maxSeconds >= 90) {
-    trait = '【勝負所での熟慮・深い没頭型】勝負の分かれ目や複雑な局面において、周囲の喧騒を遮断して盤上に深く沈み込み、納得がいくまで考え抜く強い意志と集中力が記録されています。';
-    advice = 'ピンチや未知の局面に直面したとき、安易に妥協せずじっくり腰を据えて打開策を探す「思慮の深さと胆力」が抜群です。';
-  } else if (quickMoveCount > totalMovesWithTime * 0.6) {
-    trait = '【直観とリズムの瞬発型】迷いなくテンポよく指し進め、直観的なひらめきと素早い決断で盤上の流れを自ら掴み取るスタイルが顕著です。';
-    advice = '自分の直観を信じる強い瞬発力と自信があり、恐れずに前へ進む行動力の高さが時間配分に現れています。';
-  } else {
-    trait = '【冷静なペース配分・自律型】時間を無駄遣いせず、局面の難易度に応じて冷静にタイムマネジメントを行う自律的な配分が見られます。';
-    advice = '感情の波に流されず、持てるリソース（時間と集中力）を最適にコントロールして最後まで戦い抜く安定感があります。';
-  }
-
-  return {
-    hasTimeData: true,
-    maxSeconds,
-    longThinkCount,
-    quickMoveCount,
-    trait,
-    advice,
-    summary: `最高考慮時間: 約${Math.round(maxSeconds)}秒 / 長考局面: ${longThinkCount}回`
-  };
-}
 
 async function robustCopyText(text) {
   if (!text) return false;
@@ -205,7 +135,6 @@ export default function MindBoardApp() {
   const [playerName, setPlayerName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState(null);
-  const [timeAnalysisInfo, setTimeAnalysisInfo] = useState(null);
   const [copyStatus, setCopyStatus] = useState('');
   const [showManualModal, setShowManualModal] = useState(false);
   const modalTextRef = useRef(null);
@@ -233,7 +162,6 @@ export default function MindBoardApp() {
   const handleClear = () => {
     setPgnInput('');
     setResult(null);
-    setTimeAnalysisInfo(null);
     setCopyStatus('');
   };
 
@@ -243,30 +171,19 @@ export default function MindBoardApp() {
     setResult(null);
     setCopyStatus('');
 
-    const timePattern = extractTimePatterns(pgnInput);
-    setTimeAnalysisInfo(timePattern);
-
     const effectiveName = playerName.trim() || (appMode === 'kids' ? 'お子さん' : 'あなた');
     const isChess = gameType === 'chess';
     const sideText = playerSide === 'white' || playerSide === 'sente' ? (isChess ? '白番' : '先手') : (isChess ? '黒番' : '後手');
-
-    const timeInstructionSnippet = timePattern ? `
-【考慮時間の記録】
-- 傾向：${timePattern.trait}
-- 詳細：${timePattern.advice}（${timePattern.summary}）
-この時間配分や長考の呼吸を人物描写の根拠として自然に織り交ぜてください。
-` : '';
 
     let systemPrompt = '';
     let userPrompt = '';
 
     if (appMode === 'kids') {
-      systemPrompt = `あなたは、将棋大会（JT日本将棋シリーズ・テーブルマークこども大会など）に来場した子どもたちとその親御さんのために、盤上の指し手や時間配分から「お子さんの生まれ持った輝く才能・性格」「生きるチカラ」、そして「この子の心が真に満たされる瞬間（心の豊かさ）」を温かく肯定的に紐解く児童発達心理・人間洞察家です。
+      systemPrompt = `あなたは、将棋大会（JT日本将棋シリーズ・テーブルマークこども大会など）に来場した子どもたちとその親御さんのために、盤上の駒運びや指し手の呼吸から「お子さんの生まれ持った輝く才能・性格」「生きるチカラ」、そして「この子の心が真に満たされる瞬間（心の豊かさ）」を温かく肯定的に紐解く児童発達心理・人間洞察家です。
 盤上の具体的な技術解説は書かず、温かくポジティブで励ましに満ちた文章を執筆してください。必ず指定されたJSON形式のみを出力してください。`;
 
       userPrompt = `対局種別：${isChess ? 'チェス' : '将棋'}
 お子さんのお名前：${effectiveName}（${sideText}）
-${timeInstructionSnippet}
 
 【対象の棋譜】
 ${pgnInput}
@@ -281,12 +198,11 @@ ${pgnInput}
   "motto": "心のお守りになる言葉（1〜2行）"
 }`;
     } else {
-      systemPrompt = `あなたは、盤上の駒運びや時間の呼吸から、指し手の「深層性格」「人生哲学・生き様」、そして「真の心の豊かさ」を深く洞察する人間洞察家・文筆家です。
+      systemPrompt = `あなたは、盤上の駒運びや手筋の気配から、指し手の「深層性格」「人生哲学・生き様」、そして「真の心の豊かさ」を深く洞察する人間洞察家・文筆家です。
 技術解説は書かず、文学的で深い文章を執筆してください。必ず指定されたJSON形式のみを出力してください。`;
 
       userPrompt = `対局ゲーム種別：${isChess ? 'チェス' : '将棋'}
 対象者：${effectiveName}（${sideText}）
-${timeInstructionSnippet}
 
 【対象の棋譜】
 ${pgnInput}
@@ -328,9 +244,6 @@ ${pgnInput}
         ? generateKidsPersonalityEssay(gameType, pgnInput, playerSide, effectiveName)
         : generateAdultPersonalityEssay(gameType, pgnInput, playerSide, effectiveName);
       
-      if (timePattern) {
-        fallbackData.personality += `\n\n【盤上の時間の呼吸】\n${timePattern.trait}`;
-      }
       setResult(fallbackData);
       setIsLoading(false);
     }, 500);
@@ -449,8 +362,8 @@ ${result.motto}
               </div>
               <p className="text-xs text-stone-500 font-sans">
                 {appMode === 'kids' 
-                  ? 'JT将棋日本シリーズ・こども大会対応｜指し手と考慮時間から子の才能を紐解く'
-                  : '棋風と時間の呼吸から、あなたの生き様と心の豊かさを紐解く'}
+                  ? 'JT将棋日本シリーズ・こども大会対応｜指し手からお子さんの輝く才能を紐解く'
+                  : '盤上の指し手と気配から、あなたの生き様と心の豊かさを紐解く'}
               </p>
             </div>
           </div>
@@ -507,9 +420,6 @@ ${result.motto}
               <Award className="w-4 h-4 text-orange-600 shrink-0" />
               <span><strong>JT将棋日本シリーズ・テーブルマークこども大会</strong>の対局記録から、お子さんの才能と心の豊かさを紐解きます。</span>
             </div>
-            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] bg-white px-2 py-0.5 rounded-full border border-orange-200 text-orange-800">
-              <Clock className="w-3 h-3 text-orange-600" /> 考慮時間の長考も判定
-            </span>
           </div>
         </div>
       )}
@@ -549,22 +459,11 @@ ${result.motto}
               rows={11}
               placeholder={
                 gameType === 'shogi'
-                  ? "【将棋の棋譜テキスト（KIF / ぴよ将棋 / 将棋ウォーズ等）】\n※ 消費時間（例: 0:15 や 30秒 など）があれば長考の集中力も自動判定します。\n\n例:\n1 ７六歩(77) ( 0:02/00:00:02)\n2 ３四歩(33) ( 0:03/00:00:03)..."
+                  ? "【将棋の棋譜テキスト（KIF / ぴよ将棋 / 将棋ウォーズ等）】\n\n例:\n1 ７六歩(77)\n2 ３四歩(33)\n3 ２六歩(28)..."
                   : "【チェスの棋譜テキスト（PGN形式）】\n\n例:\n1. e4 e5 2. Nf3 Nc6..."
               }
               className="w-full bg-[#FAF8F5] border border-stone-200 rounded-xl p-3.5 font-mono text-xs text-stone-700 focus:outline-hidden focus:border-amber-500 resize-y leading-relaxed"
             />
-
-            {pgnInput && (
-              <div className="flex items-center gap-1.5 text-[11px] font-sans text-stone-600 bg-stone-50 border border-stone-200 px-3 py-1.5 rounded-lg">
-                <Clock className="w-3.5 h-3.5 text-amber-600" />
-                <span>
-                  {extractTimePatterns(pgnInput)
-                    ? `思考時間データを検出：${extractTimePatterns(pgnInput).summary}`
-                    : '思考時間なし（手順の気配から心理的呼吸を推察します）'}
-                </span>
-              </div>
-            )}
 
             <div className="grid grid-cols-2 gap-3 pt-1 font-sans">
               <div>
@@ -687,23 +586,6 @@ ${result.motto}
                   </p>
                 </div>
 
-                {timeAnalysisInfo && (
-                  <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 font-sans text-xs text-stone-800 flex items-start gap-3">
-                    <Hourglass className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <div className="font-bold text-amber-900 flex items-center gap-2">
-                        <span>盤上の時間の呼吸</span>
-                        <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-amber-200 text-amber-800">
-                          {timeAnalysisInfo.summary}
-                        </span>
-                      </div>
-                      <p className="text-stone-700 leading-relaxed">
-                        {timeAnalysisInfo.trait} {timeAnalysisInfo.advice}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
                 <div className="space-y-3">
                   <h3 className="text-xs font-bold font-sans tracking-wider text-amber-900 flex items-center gap-2 uppercase">
                     <Smile className="w-4 h-4 text-amber-600" />
@@ -766,7 +648,7 @@ ${result.motto}
               </div>
               <div className="space-y-2 max-w-md font-sans">
                 <h3 className="text-lg font-bold text-stone-900">
-                  {appMode === 'kids' ? 'お子さんの棋譜から、才能と心の豊かさを紐解きます' : '棋風の呼吸から、生き様と心の豊かさを紐解きます'}
+                  {appMode === 'kids' ? 'お子さんの棋譜から、才能と心の豊かさを紐解きます' : '盤上の駒運びから、生き様と心の豊かさを紐解きます'}
                 </h3>
                 <p className="text-xs text-stone-500 leading-relaxed">
                   左側の枠に棋譜テキストを貼り付けて「診断する」を押してください。
